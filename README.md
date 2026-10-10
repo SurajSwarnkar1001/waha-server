@@ -168,3 +168,179 @@ yarn gows:proto
 yarn start
 # open http://localhost:3000
 ```
+
+## ☁️ Self-Hosting WAHA on AWS EC2 (Free Tier)
+# WAHA (WhatsApp HTTP API) - Full Self-Hosting Guide (AWS EC2 & Docker)
+
+Is document me **WAHA (WhatsApp HTTP API)** ko **AWS EC2** par setup karne, Docker install karne, Dashboard login karne, aur Credentials (API Key & Passwords) ko manage/reset karne ki poori jankari di gayi hai.
+
+---
+
+## 📌 Index / Table of Contents
+1. [WAHA Kya Hai & Platform Comparison](#1-waha-kya-hai--platform-comparison)
+2. [AWS EC2 Instance Setup (Step-by-Step)](#2-aws-ec2-instance-setup-step-by-step)
+3. [Docker Installation & Firewall Configuration](#3-docker-installation--firewall-configuration)
+4. [WAHA Launch (Docker Command)](#4-waha-launch-docker-command)
+5. [Dashboard Access & QR Code Scan](#5-dashboard-access--qr-code-scan)
+6. [Credentials (API Key, Username, Password) Change & Reset Karna](#6-credentials-api-key-username-password-change--reset-karna)
+7. [Useful Maintenance Commands (Troubleshooting)](#7-useful-maintenance-commands-troubleshooting)
+8. [API Usage Examples (Send Message)](#8-api-usage-examples-send-message)
+
+---
+
+## 1. WAHA Kya Hai & Platform Comparison
+
+**WAHA (WhatsApp HTTP API)** ek open-source software hai jo aapke WhatsApp account ko REST HTTP API me convert kar deta hai. Isse aap automated text, images, files, aur webhooks send/receive kar sakte hain.
+
+### ❓ Render Free Tier vs AWS EC2:
+
+| Feature | Render Free Tier | AWS EC2 (Free Tier) |
+| :--- | :--- | :--- |
+| **Storage (Persistent)** | ❌ Ephemeral (Data delete ho jata hai) | ✅ 30 GB EBS Volume (Session Safe) |
+| **Server Sleep** | ❌ 15 min me sleep ho jata hai | ✅ 24/7 Active (No Sleep) |
+| **RAM** | ❌ 512 MB (Chromium crash) | ✅ 1 GB RAM (t3.micro / t2.micro) |
+| **WhatsApp Session** | ❌ Daily Logout / Re-scan | ✅ Permanent Login (Until Manual Logout) |
+
+---
+
+## 2. AWS EC2 Instance Setup (Step-by-Step)
+
+1. [AWS Console](https://aws.amazon.com) me Login karein aur **EC2** Service par jayein.
+2. **Launch Instance** (Orange Button) par click karein:
+   * **Name:** `waha-server`
+   * **Application & OS Image (AMI):** Select **`Ubuntu`** -> **`Ubuntu Server 22.04 LTS (HVM), SSD Volume Type`** (Free Tier Eligible).
+   * **Instance Type:** Select **`t3.micro`** ya **`t2.micro`**.
+   * **Key Pair:** Create New Key Pair -> Name: `waha-key`, Type: `RSA`, Format: `.pem` (Download & Save).
+3. **Network Settings (Security Group):**
+   * Edit par click karein.
+   * **Rule 1:** Allow `SSH` (Port `22`) from `Anywhere (0.0.0.0/0)`.
+   * **Rule 2 (Add Security Group Rule):** Select `Custom TCP`, Port range `3000`, Source `Anywhere (0.0.0.0/0)`.
+4. **Configure Storage:** `8 GiB` ko badal kar **`30 GiB`** kar dein.
+5. **Launch Instance** par click karein.
+
+---
+
+## 3. Docker Installation & Firewall Configuration
+
+EC2 Instance me **1-Click Connect** (Browser Terminal) ya SSH se login karein aur ye commands run karein:
+
+```bash
+# 1. System Packages Update & Upgrade
+sudo apt update && sudo apt upgrade -y
+
+# 2. Official Docker Script Download & Install
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# 3. Ubuntu User ko Docker Group me add karein
+sudo usermod -aG docker ubuntu
+newgrp docker
+```
+
+---
+
+## 4. WAHA Launch (Docker Command)
+
+WAHA ko persistent session storage ke saath launch karne ke liye ye command chalaein:
+
+```bash
+docker run -d \
+  --name waha \
+  --restart always \
+  -p 3000:3000 \
+  -v waha_sessions:/app/.sessions \
+  -e WHATSAPP_API_KEY="mysecretkey123" \
+  -e WAHA_DASHBOARD_USERNAME="admin" \
+  -e WAHA_DASHBOARD_PASSWORD="adminpassword123" \
+  devlikeapro/waha
+```
+
+> ⚠️ **Key Parameters:**
+> * `-p 3000:3000`: Port 3000 ko external traffic ke liye open karta hai.
+> * `-v waha_sessions:/app/.sessions`: WhatsApp QR Code Login Session ko storage volume me permanent save karta hai.
+> * `--restart always`: Server restart hone par WAHA automatically restart ho jata hai.
+
+---
+
+## 5. Dashboard Access & QR Code Scan
+
+1. Apne Server ka **Public IP** pata karein:
+   ```bash
+   curl ifconfig.me
+   ```
+2. Apne browser (Chrome/Edge) me ye URL kholein:
+   ```text
+   http://YOUR_SERVER_PUBLIC_IP:3000/dashboard
+   ```
+3. Login Details:
+   * **Username:** `admin` (ya jo aapne set kiya ho)
+   * **Password:** `adminpassword123` (ya jo aapne set kiya ho)
+   * **API Key:** `mysecretkey123`
+4. Dashboard me **Start Session** button dabayein aur apne mobile WhatsApp app (Linked Devices) se QR Code scan karein.
+
+---
+
+## 6. Credentials (API Key, Username, Password) Change & Reset Karna
+
+Jab bhi aapko API Key, Username, ya Password change karna ho, to ye **2 steps** kijiye:
+
+### Step 1: Current Container Stop & Remove Karein
+*(Note: Isse aapka WhatsApp Login Session delete NAHI hoga, kyunki wo `waha_sessions` volume me safe hai).*
+
+```bash
+docker stop waha && docker rm waha
+```
+
+### Step 2: Naye Environment Variables ke saath Restart Karein
+
+```bash
+docker run -d \
+  --name waha \
+  --restart always \
+  -p 3000:3000 \
+  -v waha_sessions:/app/.sessions \
+  -e WHATSAPP_API_KEY="YOUR_NEW_API_KEY" \
+  -e WAHA_DASHBOARD_USERNAME="YOUR_NEW_USERNAME" \
+  -e WAHA_DASHBOARD_PASSWORD="YOUR_NEW_PASSWORD" \
+  devlikeapro/waha
+```
+
+---
+
+## 7. Useful Maintenance Commands (Troubleshooting)
+
+| Task | Command |
+| :--- | :--- |
+| **Check Container Running Status** | `docker ps` |
+| **Check Live Logs / Errors** | `docker logs waha` |
+| **Follow Live Logs in Realtime** | `docker logs -f waha` |
+| **Restart WAHA Container** | `docker restart waha` |
+| **Check Server Public IP** | `curl ifconfig.me` |
+| **Check Server Memory (RAM) Usage** | `free -h` |
+| **Check Server Storage (Disk) Space** | `df -h` |
+
+---
+
+## 8. API Usage Examples (Send Message)
+
+### 🔹 Send Text Message via cURL / HTTP POST
+
+```bash
+curl -X 'POST' \
+  'http://YOUR_SERVER_PUBLIC_IP:3000/api/sendText' \
+  -H 'accept: application/json' \
+  -H 'x-api-key: mysecretkey123' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "chatId": "919876543210@c.us",
+  "text": "Hello! WAHA WhatsApp API is working fine.",
+  "session": "default"
+}'
+```
+
+---
+
+*Guide Created for WAHA Self-Hosting on AWS EC2.*
+
+
+
